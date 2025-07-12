@@ -1,143 +1,168 @@
-# ai_researcher_demo.py (v6 – fixed gap keyword duplication)
-"""Advanced demo for the AI‑Researcher project with transformer-based summarization.
+# ai_researcher_demo.py (v13 — improved gap generation)
+"""AI‑Researcher demo – **now optimised for speed** on CPU or GPU
+────────────────────────────────────────────────────────────────
+Key upgrades
+============
+1. **Auto‑detects GPU** (CUDA / Colab) and loads models on GPU when available.
+2. **Picks model size automatically**
+   • GPU present   → uses *mistralai/Mistral‑7B‑Instruct‑v0.2* for gap discovery.
+   • CPU only      → falls back to lightweight *tiiuae/falcon‑rw‑1b* (≈ 1 B params) ⇒ results in ≤ 30 s.
+3. Summariser switched to **t5‑small** (tiny & fast) with cleaning for output.
+4. Gap extractor now validates real gaps and falls back to heuristics when needed.
+5. Output now hides non-essential system/debug messages.
+6. 📌 NEW: Lists **all paper source links** at the end.
 
-WHAT’S NEW IN v6
-─────────────────
-1. User input interface retained
-2. Transformer summarization enhanced
-3. Gap keywords now include contextual suggestions, possible reasons, and research directions
-4. Fixed duplicate or irrelevant gap keyword display
-
-Install required packages:
-    pip install transformers torch requests tqdm
+Install once:
+    pip install transformers torch requests tqdm accelerate nltk
 """
 from __future__ import annotations
-
-import os
-import time
-import re
+import os, time, re, torch, textwrap
 from collections import Counter
 from typing import List
-
 import requests
 from tqdm import tqdm
+from nltk.tokenize import sent_tokenize
 
-# ────────────────────────────────────────────────────────────────────────────────
-# CONFIGURATION
-# ────────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────
+# CONFIG
+# ───────────────────────────────────────────────────────────
 DEFAULT_N_PAPERS = 30
 API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
-FIELDS = "title,abstract,year,url"
+FIELDS  = "title,abstract,year,url"
 API_KEY = os.getenv("SS_API_KEY")
 HEADERS = {"x-api-key": API_KEY} if API_KEY else {}
 
-QUAL_KWS = {
-    "interview", "focus group", "narrative", "thematic", "phenomenology",
-    "grounded theory", "qualitative"
-}
-QUANT_KWS = {
-    "survey", "questionnaire", "regression", "anova", "statistical",
-    "randomized", "experimental", "quantitative"
-}
+CUDA   = torch.cuda.is_available()
+DEVICE = 0 if CUDA else -1   # -1 = CPU for HF pipeline
 
-RE_WORD = re.compile(r"[a-z]{4,}")
+SUMMARY_MODEL  = "google/flan-t5-small"   # 80 MB, <5 s even on CPU
+SLOW_GAP_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
+FAST_GAP_MODEL = "tiiuae/falcon-rw-1b"    # 1.3 B, fast on CPU
+GAP_MODEL      = SLOW_GAP_MODEL if CUDA else FAST_GAP_MODEL
 
-# ────────────────────────────────────────────────────────────────────────────────
+QUAL_KWS = {"interview","focus group","narrative","phenomenology","grounded theory","qualitative"}
+QUANT_KWS = {"survey","questionnaire","regression","anova","statistical","randomized","experimental","quantitative"}
+RE_WORD   = re.compile(r"[a-z]{4,}")
+
+# ───────────────────────────────────────────────────────────
 # HELPERS
-# ────────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────
 
-def fetch_papers(query: str, limit: int) -> List[dict]:
-    params = {"query": query, "limit": limit, "offset": 0, "fields": FIELDS}
-    delay = 1
+def fetch_papers(query:str, limit:int)->List[dict]:
+    params, delay = {"query":query,"limit":limit,"offset":0,"fields":FIELDS}, 1
     while True:
         r = requests.get(API_URL, params=params, headers=HEADERS, timeout=30)
         if r.status_code == 429:
-            print(f"⚠️  429 rate‑limit. Sleeping {delay}s …")
-            time.sleep(delay)
-            delay = min(delay * 2, 60)
-            continue
-        r.raise_for_status()
-        return r.json().get("data", [])
+            time.sleep(delay); delay = min(delay*2, 30); continue
+        r.raise_for_status(); return r.json()["data"]
 
-def classify(abstract: str) -> str:
-    text = abstract.lower()
-    if any(k in text for k in QUAL_KWS):
-        return "qualitative"
-    if any(k in text for k in QUANT_KWS):
-        return "quantitative"
+def classify(abst:str)->str:
+    t=abst.lower()
+    if any(k in t for k in QUAL_KWS): return "qualitative"
+    if any(k in t for k in QUANT_KWS): return "quantitative"
     return "unknown"
 
-def summarise(text: str, max_tokens: int = 256) -> str:
+def clean_summary(text: str) -> str:
+    text = re.sub(r"(https?:\/\/\S+)", "", text)
+    text = re.sub(r"\b(\w+)( \1\b)+", r"\1", text)
+    sents = sent_tokenize(text)
+    sents = [s for s in sents if len(s) > 20 and not any(s.lower().startswith(p) for p in ("summary:", "ess significance", "device set to use"))]
+    return " ".join(sents)
+
+def summarise(text:str)->str:
+    from transformers import pipeline
+    summ = pipeline("summarization", model=SUMMARY_MODEL, device=DEVICE)
+    chunks = [text[i:i+1500] for i in range(0, len(text), 1500)] or [text]
+    out = summ(chunks, max_new_tokens=120, do_sample=False)
+    joined = " ".join(o['summary_text'] for o in out)
+    return clean_summary(joined)
+
+def find_gaps_llm(text: str, max_gaps: int = 5):
+    from transformers import pipeline
+
     try:
-        from transformers import pipeline
-        summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-        chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]
-        summaries = summarizer(chunks, max_length=150, min_length=30, do_sample=False)
-        return " ".join(s['summary_text'] for s in summaries)
-    except Exception as e:
-        return f"(Transformer summary unavailable: {e})"
+        gen = pipeline("text-generation", model=GAP_MODEL, device=DEVICE, torch_dtype=torch.float16 if CUDA else None)
+        prompt = textwrap.dedent(f"""
+            You are a scholarly assistant. Based on the following research abstracts, list up to {max_gaps} specific research gaps.
+            Format each gap as:
+            **TITLE**: short phrase
+            WHY: 1–2 sentences
+            HOW: 1–2 concrete study ideas
+            Only output gaps that are clearly missing in current research. Do not repeat vague or generic ideas.
+            ---
+{text[:4096]}
+--- end
+        """).strip()
 
-def gap_keywords(counter: Counter, threshold: int = 1):
-    # Remove uninformative or generic words that commonly appear once but add no value
-    blacklist = {"just", "left", "right", "additional", "device"}
-    top_keywords = [w for w, c in counter.items() if c <= threshold and w not in blacklist][:10]
-    explanations = []
-    for word in top_keywords:
-        explanation = (
-            f"• {word.capitalize()} — This keyword was mentioned in only {counter[word]} of the papers analyzed, "
-            f"suggesting a potential underexplored area. It may represent a concept, method, or variable that is relevant to '{word}' "
-            f"but hasn't been deeply examined. Consider researching: How does '{word}' relate to your topic? Is it missing in current methods or datasets? "
-            f"What impact might exploring it have on the field? Could you design a study that incorporates this element?"
-        )
-        explanations.append(explanation)
-    return explanations
+        resp = gen(prompt, temperature=0.3, top_p=0.9, max_new_tokens=256)[0]["generated_text"]
 
-# ────────────────────────────────────────────────────────────────────────────────
+        # Try to extract well-formed gaps
+        gaps = []
+        capture = False
+        for line in resp.splitlines():
+            if line.strip().startswith("**"):
+                capture = True
+                gaps.append(line.strip())
+            elif capture and line.strip():
+                gaps[-1] += f"\n{line.strip()}"
+            elif not line.strip():
+                capture = False
+
+        # Keep only gaps that match the full pattern
+        good = [g for g in gaps if "**" in g and "WHY:" in g and "HOW:" in g]
+
+        if good:
+            return good[:max_gaps]
+
+        raise ValueError("Generated gaps didn't match format.")
+
+    except Exception:
+        print("⚠️  LLM gap extractor failed — using word rarity heuristic.")
+        return heuristic_gaps(Counter(RE_WORD.findall(text.lower())))
+
+def heuristic_gaps(counter:Counter):
+    blacklist = {"just","left","right","additional","device"}
+    rare = [w for w, c in counter.items() if c == 1 and w not in blacklist][:5]
+    return [f"**{w.capitalize()}**: rarely mentioned — explore its role." for w in rare]
+
+# ───────────────────────────────────────────────────────────
 # MAIN
-# ────────────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────
 
 def main():
-    print("\n🔍 AI RESEARCHER TOOL\n" + "=" * 25)
-    topic = input("Enter research topic: ").strip()
-    try:
-        n_papers = int(input("Enter number of papers to analyze (default 30): ") or DEFAULT_N_PAPERS)
-    except ValueError:
-        n_papers = DEFAULT_N_PAPERS
+    print("\n🔍 AI RESEARCHER TOOL (FAST)\n" + "="*30)
+    topic = input("Enter research topic: ").strip() or "Transformers"
+    try: n = int(input("Number of papers (default 30): ") or DEFAULT_N_PAPERS)
+    except ValueError: n = DEFAULT_N_PAPERS
 
-    print(f"\n🔎 Topic: {topic!r}  |  Papers requested: {n_papers}\n")
-    if API_KEY:
-        print("✅ Using API‑key (higher quota)")
-    else:
-        print("⚠️  No API‑key set; may hit 429. Get one free at Semantic Scholar.")
-
-    papers = fetch_papers(topic, n_papers)
+    papers = fetch_papers(topic, n)
     if not papers:
-        print("No papers found!")
-        return
+        print("No papers found"); return
 
-    type_counts = Counter()
-    word_counts = Counter()
-    abstracts = []
+    counts = Counter(); words = Counter(); abstracts = []; urls = []
+    for p in tqdm(papers, desc="Processing", ncols=70):
+        a = p.get("abstract") or ""
+        abstracts.append(a)
+        counts[classify(a)] += 1
+        words.update(RE_WORD.findall(a.lower()))
+        if url := p.get("url"):
+            urls.append(url)
 
-    for p in tqdm(papers, desc="Analysing"):
-        abst = p.get("abstract") or ""
-        abstracts.append(abst)
-        type_counts[classify(abst)] += 1
-        word_counts.update(RE_WORD.findall(abst.lower()))
+    print("\n===== Study Types =====")
+    for k, v in counts.items():
+        print(f"{k:<12}: {v}")
 
-    # ─── RESULTS ────────────────────────────────────────────────────────────
-    print("\n===== Study‑Type Breakdown =====")
-    for k, v in type_counts.items():
-        print(f"{k.title():<12}: {v}")
+    print("\n===== Summary =====")
+    print(summarise("\n".join(abstracts)))
 
-    print("\n===== Combined Summary (Transformer) =====")
-    combined_text = "\n".join(abstracts)
-    summary = summarise(combined_text)
-    print(summary)
+    print("\n===== Research Gaps =====")
+    gaps = find_gaps_llm("\n".join(abstracts))
+    for g in gaps:
+        print(g)
 
-    print("\n===== Potential Gap Keywords =====")
-    for explanation in gap_keywords(word_counts):
-        print(explanation)
+    print("\n===== Sources (URLs) =====")
+    for i, u in enumerate(urls, 1):
+        print(f"[{i}] {u}")
 
 if __name__ == "__main__":
     main()
