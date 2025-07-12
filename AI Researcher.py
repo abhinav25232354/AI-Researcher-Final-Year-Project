@@ -1,44 +1,34 @@
-# ai_researcher_demo.py (v2 – handles 429 & API‑key)
-"""Minimal but **fully working** demo for the AI‑Researcher project.
+# ai_researcher_demo.py (v6 – fixed gap keyword duplication)
+"""Advanced demo for the AI‑Researcher project with transformer-based summarization.
 
-USAGE (Windows Powershell example):
-    python .\ai_researcher_demo.py "Machine Learning"
-
-WHAT’S NEW IN v2
+WHAT’S NEW IN v6
 ─────────────────
-1.  Handles **HTTP 429 Too Many Requests** gracefully (retry w/ back‑off).
-2.  Optional **Semantic Scholar API‑key** support – increases free quota.
-3.  Lets you choose how many papers (default 30).
-4.  Cleaner terminal output & error messages.
+1. User input interface retained
+2. Transformer summarization enhanced
+3. Gap keywords now include contextual suggestions, possible reasons, and research directions
+4. Fixed duplicate or irrelevant gap keyword display
 
-Install once:
-    pip install requests tqdm sumy
-
-NOTE – still uses micro‑heuristics for classification & TextRank for summary.
-Swap in SciBERT & LED later.
+Install required packages:
+    pip install transformers torch requests tqdm
 """
 from __future__ import annotations
 
 import os
-import sys
 import time
 import re
 from collections import Counter
-from textwrap import shorten
 from typing import List
 
 import requests
 from tqdm import tqdm
 
-
-
 # ────────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION
 # ────────────────────────────────────────────────────────────────────────────────
-DEFAULT_N_PAPERS = 30  # you can override via CLI «--n 100»
+DEFAULT_N_PAPERS = 30
 API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 FIELDS = "title,abstract,year,url"
-API_KEY = os.getenv("SS_API_KEY")  # put your key in an env‑var if you have one
+API_KEY = os.getenv("SS_API_KEY")
 HEADERS = {"x-api-key": API_KEY} if API_KEY else {}
 
 QUAL_KWS = {
@@ -57,7 +47,6 @@ RE_WORD = re.compile(r"[a-z]{4,}")
 # ────────────────────────────────────────────────────────────────────────────────
 
 def fetch_papers(query: str, limit: int) -> List[dict]:
-    """Fetch papers and handle 429 with exponential back‑off."""
     params = {"query": query, "limit": limit, "offset": 0, "fields": FIELDS}
     delay = 1
     while True:
@@ -78,52 +67,48 @@ def classify(abstract: str) -> str:
         return "quantitative"
     return "unknown"
 
-def summarise(all_text: str, max_sentences: int = 5) -> str:
+def summarise(text: str, max_tokens: int = 256) -> str:
     try:
-        from sumy.parsers.plaintext import PlaintextParser
-        
-        from sumy.nlp.tokenizers import Tokenizer
-        import nltk
-        nltk.download('punkt_tab')
-        
-        from sumy.summarizers.text_rank import TextRankSummarizer
-    except ImportError:
-        return "(install 'sumy' for summaries)"
-    parser = PlaintextParser.from_string(all_text, Tokenizer("english"))
-    summarizer = TextRankSummarizer()
-    sents = summarizer(parser.document, sentences_count=max_sentences)
-    return " ".join(str(s) for s in sents)
-
+        from transformers import pipeline
+        summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
+        chunks = [text[i:i+1000] for i in range(0, len(text), 1000)]
+        summaries = summarizer(chunks, max_length=150, min_length=30, do_sample=False)
+        return " ".join(s['summary_text'] for s in summaries)
+    except Exception as e:
+        return f"(Transformer summary unavailable: {e})"
 
 def gap_keywords(counter: Counter, threshold: int = 1):
-    return [w for w, c in counter.items() if c <= threshold][:10]
+    # Remove uninformative or generic words that commonly appear once but add no value
+    blacklist = {"just", "left", "right", "additional", "device"}
+    top_keywords = [w for w, c in counter.items() if c <= threshold and w not in blacklist][:10]
+    explanations = []
+    for word in top_keywords:
+        explanation = (
+            f"• {word.capitalize()} — This keyword was mentioned in only {counter[word]} of the papers analyzed, "
+            f"suggesting a potential underexplored area. It may represent a concept, method, or variable that is relevant to '{word}' "
+            f"but hasn't been deeply examined. Consider researching: How does '{word}' relate to your topic? Is it missing in current methods or datasets? "
+            f"What impact might exploring it have on the field? Could you design a study that incorporates this element?"
+        )
+        explanations.append(explanation)
+    return explanations
 
 # ────────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ────────────────────────────────────────────────────────────────────────────────
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python ai_researcher_demo.py \"topic\" [--n 50]")
-        sys.exit(1)
+    print("\n🔍 AI RESEARCHER TOOL\n" + "=" * 25)
+    topic = input("Enter research topic: ").strip()
+    try:
+        n_papers = int(input("Enter number of papers to analyze (default 30): ") or DEFAULT_N_PAPERS)
+    except ValueError:
+        n_papers = DEFAULT_N_PAPERS
 
-    topic_parts = []
-    n_papers = DEFAULT_N_PAPERS
-    for arg in sys.argv[1:]:
-        if arg.startswith("--n"):
-            try:
-                n_papers = int(arg.split("=")[-1])
-            except ValueError:
-                print("Invalid --n value; using default.")
-        else:
-            topic_parts.append(arg)
-    topic = " ".join(topic_parts)
-
-    print(f"🔎 Topic: {topic!r}  |  Papers requested: {n_papers}\n")
+    print(f"\n🔎 Topic: {topic!r}  |  Papers requested: {n_papers}\n")
     if API_KEY:
         print("✅ Using API‑key (higher quota)")
     else:
-        print("⚠️  No API‑key set; may hit 429. Get one free at Semantic Scholar.")
+        print("⚠️  No API‑key set; may hit 429. Get one free at Semantic Scholar.")
 
     papers = fetch_papers(topic, n_papers)
     if not papers:
@@ -145,13 +130,14 @@ def main():
     for k, v in type_counts.items():
         print(f"{k.title():<12}: {v}")
 
-    print("\n===== Combined Summary (TextRank) =====")
-    summary = summarise("\n".join(abstracts))
-    print(shorten(summary, 800))
+    print("\n===== Combined Summary (Transformer) =====")
+    combined_text = "\n".join(abstracts)
+    summary = summarise(combined_text)
+    print(summary)
 
     print("\n===== Potential Gap Keywords =====")
-    for kw in gap_keywords(word_counts):
-        print("•", kw)
+    for explanation in gap_keywords(word_counts):
+        print(explanation)
 
 if __name__ == "__main__":
     main()
