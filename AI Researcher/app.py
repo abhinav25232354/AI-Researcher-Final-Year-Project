@@ -150,16 +150,30 @@ def step2():
     # --- Research Gaps
     joined = "\n".join([p.get("abstract") or "" for p in sel])[:8000]
     gaps_raw = call_gemini(
-        "Identify 5 concrete research gaps with **TITLE**: then description\n\n---\n" + joined,
+        "Identify concrete research gaps with **TITLE**: then description\n\n---\n" + joined,
         max_tokens=400, temperature=0.4,
     )
 
     # Convert markdown to HTML (bold) and spacing
     gaps_raw = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", gaps_raw)
     gaps_blocks = gaps_raw.strip().split("---") if "---" in gaps_raw else gaps_raw.strip().split("\n\n")
+    # gaps_html = "<div class='space-y-6'>" + "".join(
+    #     f"<div class='gap-item'>{block.strip()}</div>" for block in gaps_blocks if block.strip()
+    # ) + "</div>"
+    def format_gap_block(text):
+        lines = text.split("Description:")
+        title = lines[0].replace("TITLE:", "").strip()
+        desc = "Description:" + lines[1].strip() if len(lines) > 1 else ""
+        return f"""
+        <div class="gap-item p-2 rounded bg-gray-800 border border-gray-700">
+            <h3 class="font-semibold text-white mb-2">{title}</h3>
+            <p class="text-gray-300 text-sm leading-relaxed">{desc}</p>
+        </div>
+        """
     gaps_html = "<div class='space-y-6'>" + "".join(
-        f"<div class='gap-item'>{block.strip()}</div>" for block in gaps_blocks if block.strip()
+    format_gap_block(block.strip()) for block in gaps_blocks if block.strip()
     ) + "</div>"
+
 
     # --- Final render
     return render_template_string(f"""
