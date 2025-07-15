@@ -1,0 +1,4 @@
+flask
+tqdm
+openai>=1.14
+requests

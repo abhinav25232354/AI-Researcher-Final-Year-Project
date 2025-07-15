@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Researcher – Gemini 2.5</title>
+  <!-- <script src="https://cdn.tailwindcss.com"></script> -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'scroll-thumb': '#4B5563',   // dark gray thumb
+            'scroll-track': '#1F2937',   // slightly lighter track
+          }
+        }
+      },
+      plugins: [],
+    };
+  </script>
+  <style>
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background-color: #4b5563;
+      border-radius: 8px;
+    }
+  </style>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+
+<body class="bg-gray-900 text-gray-100 h-full">
+  <!-- Top real loading bar -->
+  <div id="top-loading-bar" class="fixed top-0 left-0 h-1 bg-blue-500 z-50 transition-all ease-out duration-300 w-0">
+  </div>
+
+  <!-- Top bar with toggle buttons (always visible) -->
+  <header class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+    <h1 class="text-xl md:text-2xl font-bold" style="letter-spacing: 10px;">DEXTERITYCODER - AI RESEARCHER</h1>
+
+    <div class="space-x-2 md:hidden">
+      <!-- Hidden on md+ because sidebars are already visible -->
+      <button id="toggle-sources" class="px-3 py-1 bg-indigo-600 rounded text-sm">Sources</button>
+      <button id="toggle-gaps" class="px-3 py-1 bg-teal-600 rounded text-sm">Gaps</button>
+    </div>
+  </header>
+
+  <!-- MAIN FLEX LAYOUT -->
+  <div class="flex h-[calc(100vh-56px)] overflow-hidden">
+
+    <!-- LEFT: SOURCES (drawer on mobile) -->
+    <!-- <aside id="sources-pane"
+           class="w-64 shrink-0 p-4 overflow-y-auto border-r border-gray-800
+                  bg-gray-900 transition-transform duration-200
+                  -translate-x-full md:translate-x-0"> -->
+    <aside id="sources-pane"
+      class="w-64 shrink-0 p-4 overflow-y-auto border-r border-gray-800 bg-gray-900 scroll-smooth">
+
+      <h2 class="text-lg font-semibold mb-2">Sources</h2>
+      <p class="text-gray-400 text-sm">Source details will appear here.</p>
+    </aside>
+
+    <!-- CENTER: MAIN -->
+    <main id="center-pane" class="flex-1 min-w-0 p-6 overflow-y-auto scroll-smooth">
+      <!-- Enhanced Search Form with Export + Upload -->
+      <form class="flex flex-wrap gap-2 mb-6 items-center" hx-post="/api/step0" hx-target="#main-pane"
+        hx-swap="innerHTML">
+        <input type="text" name="topic" required placeholder="e.g. Reinforcement Learning"
+          class="flex-1 min-w-[250px] p-2 rounded bg-gray-800 border border-gray-600" />
+
+        <!-- Search button -->
+        <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white">
+          Search
+        </button>
+
+
+        <!-- Upload Paper button -->
+        <!-- Upload Paper button -->
+        <form hx-post="/api/upload_pdf" hx-encoding="multipart/form-data" hx-target="#main-pane"
+          class="flex gap-2 items-center">
+
+          <input type="file" name="pdf" accept="application/pdf"
+            class="text-sm text-white bg-gray-800 border border-gray-400 rounded px-2 py-1 file:mr-4 file:bg-gray-900 file:text-white file:border file:border-white file:rounded" />
+
+
+          <!-- Blue Upload Button (like Search) -->
+          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white">
+            Upload PDF
+          </button>
+
+          <!-- If you want yellow instead, just use this instead of the blue button:
+  <button type="submit"
+          class="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 rounded text-black font-medium">
+    Upload PDF
+  </button>
+  -->
+        </form>
+      </form>
+
+
+      <div id="main-pane"></div>
+    </main>
+    
+  <!-- This form must NOT be inside any other form -->
+  <form action="/api/export_pdf" method="post" class="inline">
+    <input type="hidden" name="export_source" value="export_now">
+    <button type="submit" class="ml-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-white">
+      Export PDF
+    </button>
+  </form>
+
+    <!-- RIGHT: GAPS (drawer on mobile) -->
+    <aside id="gaps-pane" class="w-80 shrink-0 p-4 overflow-y-auto border-l border-gray-800 bg-gray-900 scroll-smooth">
+
+      <h2 class="text-lg font-semibold mb-2">Research Gaps</h2>
+      <p class="text-gray-400 text-sm">Research gaps will appear here.</p>
+    </aside>
+  </div>
+
+  <!-- <form hx-post="/api/upload_pdf" hx-target="#main-pane" hx-encoding="multipart/form-data" class="inline">
+  <input type="file" name="pdf" accept="application/pdf" required class="text-sm p-1 rounded bg-gray-800 border border-gray-600">
+  <button type="submit" class="ml-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded text-white">Upload Paper (PDF)</button>
+</form> -->
+
+
+  <!-- Tiny inline script to toggle drawers -->
+  <script>
+    const srcBtn = document.getElementById("toggle-sources");
+    const gapBtn = document.getElementById("toggle-gaps");
+    const sources = document.getElementById("sources-pane");
+    const gaps = document.getElementById("gaps-pane");
+
+    srcBtn?.addEventListener("click", () => {
+      sources.classList.toggle("-translate-x-full");
+      // close the opposite drawer if open
+      gaps.classList.add("translate-x-full");
+    });
+
+    gapBtn?.addEventListener("click", () => {
+      gaps.classList.toggle("translate-x-full");
+      sources.classList.add("-translate-x-full");
+    });
+  </script>
+  <script>
+    const bar = document.getElementById("top-loading-bar");
+    let loadingInterval = null;
+
+    function startLoadingBar() {
+      bar.style.width = "0%";
+      let width = 0;
+      loadingInterval = setInterval(() => {
+        if (width >= 90) return; // don’t fully fill, let final event complete it
+        width += Math.random() * 10; // simulate variable loading progress
+        bar.style.width = `${width}%`;
+      }, 200);
+    }
+
+    function completeLoadingBar(success = true) {
+      clearInterval(loadingInterval);
+      bar.style.width = "100%";
+      if (!success) bar.style.backgroundColor = "#ef4444"; // red for error
+      setTimeout(() => {
+        bar.style.width = "0%";
+        if (!success) bar.style.backgroundColor = "#3b82f6"; // reset to blue
+      }, 400);
+    }
+
+    // HTMX Integration
+    document.body.addEventListener("htmx:configRequest", startLoadingBar);
+    document.body.addEventListener("htmx:afterSwap", () => completeLoadingBar(true));
+    document.body.addEventListener("htmx:responseError", () => completeLoadingBar(false));
+  </script>
+
+
+</body>
+
+</html>
