@@ -2,7 +2,7 @@
 <html lang="en" class="h-full">
 <head>
   <meta charset="UTF-8" />
-  <title>AI Researcher – Gemini 2.5</title>
+  <title>ThesisMate - Dexteritycoder</title>
    <!-- <script src="https://cdn.tailwindcss.com"></script> -->
     <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -31,14 +31,18 @@
   }
 </style>
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
 <body class="bg-gray-900 text-gray-100 h-full">
  <!-- Top real loading bar -->
 <div id="top-loading-bar" class="fixed top-0 left-0 h-1 bg-blue-500 z-50 transition-all ease-out duration-300 w-0"></div>
 
+<!-- Status message display -->
+<div id="status-message" class="fixed top-2 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-50 text-sm font-medium opacity-0 transition-opacity duration-300"></div>
+
   <!-- Top bar with toggle buttons (always visible) -->
   <header class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-    <h1 class="text-xl md:text-2xl font-bold">AI Researcher – Gemini 2.5</h1>
+    <h1 class="text-xl md:text-2xl font-bold">ThesisMate - Dexteritycoder</h1>
 
     <div class="space-x-2 md:hidden">
       <!-- Hidden on md+ because sidebars are already visible -->
@@ -67,19 +71,47 @@
     <!-- CENTER: MAIN -->
     <main id="center-pane"
   class="flex-1 min-w-0 p-6 overflow-y-auto scroll-smooth">
-      <form hx-post="/api/step0"
-            hx-target="#main-pane"
-            hx-swap="innerHTML"
-            class="space-y-4 mb-6 max-w-xl">
-        <label class="block text-sm">Enter research topic:</label>
-        <input type="text" name="topic" required
-               class="w-full p-2 rounded bg-gray-800 border border-gray-600"
-               placeholder="e.g. Reinforcement Learning" />
-        <button type="submit"
-                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded">
-          Search
-        </button>
-      </form>
+      <div class="space-y-4 mb-6 max-w-xl">
+        <!-- Search Form -->
+        <form hx-post="/api/step0"
+              hx-target="#main-pane"
+              hx-swap="innerHTML"
+              class="space-y-4">
+          <label class="block text-sm">Enter research topic:</label>
+          <div class="flex space-x-2">
+            <input type="text" name="topic" required
+                   class="flex-1 p-2 rounded bg-gray-800 border border-gray-600"
+                   placeholder="e.g. Reinforcement Learning" />
+            <button type="submit"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded">
+              Search
+            </button>
+          </div>
+        </form>
+        
+        <!-- PDF Upload Form -->
+        <div class="border-t border-gray-700 pt-4">
+          <label class="block text-sm mb-2">Or upload a PDF research paper:</label>
+          <form hx-post="/api/upload-pdf"
+                hx-target="#main-pane"
+                hx-swap="innerHTML"
+                enctype="multipart/form-data"
+                class="space-y-2">
+            <div class="flex space-x-2">
+              <input type="file" name="pdf_file" accept=".pdf" required
+                     class="flex-1 p-2 rounded bg-gray-800 border border-gray-600 text-sm file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-blue-600 file:text-white hover:file:bg-blue-700" />
+              <button type="submit"
+                      class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded flex items-center transition-colors">
+                <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                Upload
+              </button>
+            </div>
+            <p class="text-xs text-gray-400">Upload a research paper PDF to get instant analysis</p>
+          </form>
+        </div>
+      </div>
       <div id="main-pane"></div>
     </main>
 
@@ -110,36 +142,6 @@
       sources.classList.add("-translate-x-full");
     });
   </script>
-  <script>
-  const bar = document.getElementById("top-loading-bar");
-  let loadingInterval = null;
-
-  function startLoadingBar() {
-    bar.style.width = "0%";
-    let width = 0;
-    loadingInterval = setInterval(() => {
-      if (width >= 90) return; // don’t fully fill, let final event complete it
-      width += Math.random() * 10; // simulate variable loading progress
-      bar.style.width = `${width}%`;
-    }, 200);
-  }
-
-  function completeLoadingBar(success = true) {
-    clearInterval(loadingInterval);
-    bar.style.width = "100%";
-    if (!success) bar.style.backgroundColor = "#ef4444"; // red for error
-    setTimeout(() => {
-      bar.style.width = "0%";
-      if (!success) bar.style.backgroundColor = "#3b82f6"; // reset to blue
-    }, 400);
-  }
-
-  // HTMX Integration
-  document.body.addEventListener("htmx:configRequest", startLoadingBar);
-  document.body.addEventListener("htmx:afterSwap", () => completeLoadingBar(true));
-  document.body.addEventListener("htmx:responseError", () => completeLoadingBar(false));
-</script>
-
 
 </body>
 </html>

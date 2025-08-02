@@ -3,8 +3,8 @@ from typing import List, Dict
 from openai import OpenAI, OpenAIError
 
 # ── Gemini/OpenRouter Config ──
-OPENROUTER_API_KEY = "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"  # Replace with your full API key
-MODEL_ID = "google/gemini-2.5-flash-preview-05-20"
+OPENROUTER_API_KEY = "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"  # Replace with your full API key
+MODEL_ID = "openrouter/horizon-alpha"
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 30
 

@@ -2,3 +2,6 @@ flask
 tqdm
 openai>=1.14
 requests
+PyPDF2
+python-multipart
+reportlab
